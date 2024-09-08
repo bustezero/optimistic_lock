@@ -5,11 +5,12 @@ edition = "2021"
 
 [dependencies]
 chrono = "0.4.38"
-rand = "0.9.0-alpha.2"
+rand = { version = "0.8"}
 tokio = { version = "1.40", features = ["full"] }
 futures = "0.3.30"
 time = "0.3.36"
 rust_decimal = { version = "1.36" , features = ["db-postgres"]}
 tokio-postgres = { version = "0.7" , features = ["with-chrono-0_4"]}
+redis = { version = "0.26" , features = ["tokio-comp", "rust_decimal"]}
 
 #"tokio-postgres", "db-tokio-postgres"
