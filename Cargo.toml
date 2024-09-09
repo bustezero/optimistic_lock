@@ -4,13 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-chrono = "0.4.38"
+chrono = "0.4"
 rand = { version = "0.8"}
 tokio = { version = "1.40", features = ["full"] }
-futures = "0.3.30"
-time = "0.3.36"
+futures = "0.3"
+time = "0.3"
 rust_decimal = { version = "1.36" , features = ["db-postgres"]}
 tokio-postgres = { version = "0.7" , features = ["with-chrono-0_4"]}
 redis = { version = "0.26" , features = ["tokio-comp", "rust_decimal"]}
+log = "0.4"
+env_logger = "0.11"
 
 #"tokio-postgres", "db-tokio-postgres"

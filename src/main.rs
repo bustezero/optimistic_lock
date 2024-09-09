@@ -5,25 +5,34 @@ use redis::AsyncCommands;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::{FromPrimitive, ToPrimitive};
 use std::sync::{Arc};
+use std::error::Error as StdError;
 use tokio::sync::Mutex;
 use tokio::time::{self, Duration};
 use tokio_postgres::{NoTls, Client};
 use futures::future::join_all;
+use log::{error as log_error, info as log_info, LevelFilter};
+use env_logger::Builder;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), Box<dyn StdError>> {
+
+    // 初始化日志
+    Builder::new()
+        .filter_level(LevelFilter::Info)
+        .init();
+
     // PostgreSQL连接初始化
-    let pg_url = "host=192.168.123.16 user=buste password=passw0rd dbname=kafka_example";
+    let pg_url = "host=172.20.19.27 user=buste password=passw0rd dbname=kafka_example";
     let (pg_client, pg_connection) = tokio_postgres::connect(pg_url, NoTls).await?;
 
     // Redis连接初始化
-    let redis_client = redis::Client::open("redis://:passw0rd@192.168.123.16:6379/")?;
+    let redis_client = redis::Client::open("redis://:passw0rd@172.20.19.27:6379/")?;
     let redis_conn = redis_client.get_multiplexed_async_connection().await?;
 
     // 启动数据库连接任务
     tokio::spawn(async move {
         if let Err(e) = pg_connection.await {
-            eprintln!("PostgreSQL connection error: {}", e);
+            log_error!("PostgreSQL connection error: {}", e);
         }
     });
 
@@ -48,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             
             tokio::spawn(async move {
                 // 每个客户端不断尝试扣费，直到余额不足
-                let mut current_amount = Decimal::from_f64(10.0).unwrap(); // 初始扣费金额为 10.0
+                let mut current_amount = Decimal::from_f64(10.0).expect("Failed to convert 10.0 to Decimal"); // 初始扣费金额为 10.0
                 let deduct_type;
                 if (client_id.to_i32().unwrap() as usize) <= total_clients/2 {
                     deduct_type = 1;
@@ -75,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         Ok(false) => break, // 余额不足，退出循环
                         Err(e) => {
-                            eprintln!("Client {} failed: {}", client_id, e);
+                            log_error!("Client {} failed: {}", client_id, e);
                             break;
                         }
                     }
@@ -102,13 +111,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     for (client_id, time_count) in counters_times.iter().enumerate() {
-        println!("Client {}: Deductions made times: {}", client_id, time_count);
+        log_info!("Client {}: Deductions made times: {}", client_id, time_count);
     }
-    println!("Total time deductions by all clients: {}", total_times);
+    log_info!("Total time deductions by all clients: {}", total_times);
     for (client_id, value_count) in counters_values.iter().enumerate() {
-        println!("Client {}: Deductions made values: {}", client_id, value_count);
+        log_info!("Client {}: Deductions made values: {}", client_id, value_count);
     }
-    println!("Total value deductions by all clients: {}", total_values);
+    log_info!("Total value deductions by all clients: {}", total_values);
 
     Ok(())
 }
@@ -120,7 +129,7 @@ async fn deduct_balance(
     client_id: i32,
     amount: Decimal,
     deduct_type: i32,
-) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<bool, Box<dyn StdError + Send + Sync>> {
     loop {
         let mut redis_conn = redis_conn.lock().await;
 
@@ -138,7 +147,7 @@ async fn deduct_balance(
             let row = pg_client
                 .query_one("SELECT balance, version FROM accounts WHERE id = $1", &[&1])
                 .await?;
-            println!("Client {}: Redis cache expired. Reinitialized with {:?}", client_id, row);
+            log_info!("Client {}: Redis cache expired. Reinitialized with {:?}", client_id, row);
             let balance: Decimal = row.get(0);
             let version: i32 = row.get(1);
 
@@ -153,7 +162,7 @@ async fn deduct_balance(
         
         // 检查余额是否足够
         if deduct_type == 1 && balance < amount {
-            println!(
+            log_info!(
                 "Client {}: Insufficient balance. Needed {}, but has {}",
                 client_id, amount, balance
             );
@@ -178,14 +187,14 @@ async fn deduct_balance(
 
             let current_time = Utc::now();
             let deduct_type_str = if deduct_type == 1 { "deducted" } else { "added" };
-            println!(
+            log_info!(
                 "Client {}: Balance {} by {} at {}. Remaining balance: {}",
                 client_id, deduct_type_str, amount, current_time, balance
             );
             return Ok(true);
         } else {
             // 版本号冲突，重试，重新从PostgreSQL获取最新的balance和version
-            println!("Client {}: Version conflict, retrying...", client_id);
+            log_info!("Client {}: Version conflict, retrying...", client_id);
             // 清除 Redis 缓存的 balance_key 和 version_key
             let _: () = redis_conn.del(balance_key).await?;
             let _: () = redis_conn.del(version_key).await?;
